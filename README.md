@@ -5,7 +5,7 @@ A private photo and video wall for our BPO wave: albums ("Swimming", "Training D
 **Stack:** React + Vite + Framer Motion · Neon Postgres (data) · Vercel Blob (photos/videos) · one Vercel serverless function (`api/index.js`).
 
 ## Features
-- Accounts with username/password, gated by an invite code
+- Accounts with username/password. Sign-up needs an invite code that an admin creates per team, with optional limits, expiry and revoke.
 - Albums with emoji, tagline, event date and story
 - Drag-and-drop uploads of photos and videos (up to 200 MB each). Big photos are resized to save space. Every memory stores the uploader, upload date/time and date taken.
 - Viewer with 8 reactions (with an emoji burst), comments, quick emotes and GIFs (GIPHY search when a key is set, otherwise paste a GIF link)
@@ -24,9 +24,17 @@ A private photo and video wall for our BPO wave: albums ("Swimming", "Training D
    | Name | Value |
    |---|---|
    | `JWT_SECRET` | a long random string (32+ chars) |
-   | `INVITE_CODE` | the code your wave types to sign up, e.g. `wave49a` |
+   | `ADMIN_USERNAMES` | your username, e.g. `jeth` (comma-separate several) |
+   | `INVITE_CODE` | optional shared backup code; leave empty to use only admin-made codes |
    | `GIPHY_API_KEY` | optional, free at developers.giphy.com |
 6. **Redeploy.** Tables are created automatically on the first request.
+7. **Become admin:** open the site, choose *Join the wave*, and sign up with the username you put in `ADMIN_USERNAMES`. No code is needed. An **Admin** tab appears in the menu.
+
+## Inviting teams (admins)
+1. Open **Admin → New invite**. Enter who it's for (e.g. "Team Alpha"), plus an optional sign-up limit and expiry.
+2. Click **Create code & copy link**, then send the link (`…/?invite=W49A-XXXX-XXXX`) in your team chat. It opens sign-up with the code filled in. People can also type the code by hand.
+3. Each card shows how many people joined and who they are. **Revoke** stops new sign-ups with that code; people who already joined keep their accounts.
+4. Under **Members** you can see which code each person used and make other people admins.
 
 ## Run locally
 ```

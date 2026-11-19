@@ -36,6 +36,7 @@ export default function Nav() {
         <NavLink to="/" end>Home</NavLink>
         <NavLink to="/albums">Albums</NavLink>
         <NavLink to="/crew">The Crew</NavLink>
+        {user.isAdmin && <NavLink to="/admin">Admin</NavLink>}
       </nav>
       <div className="nav-right">
         <button className="btn btn--accent btn--sm" onClick={() => openUpload()}>

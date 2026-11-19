@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { handleUpload } from '@vercel/blob/client';
 import { del } from '@vercel/blob';
 import { sql, migrate, HttpError } from './db.js';
-import { signToken, requireUser } from './auth.js';
+import { signToken, requireUser, requireAdmin, isBootstrapAdmin } from './auth.js';
 
 const REACTIONS = ['❤️', '😂', '🔥', '😭', '🥹', '👏', '😮', '💯'];
 const COLORS = ['#f5b041', '#e74c3c', '#1abc9c', '#3498db', '#9b59b6', '#e67e22', '#2ecc71', '#ff6b9d'];
@@ -16,7 +16,8 @@ function clean(value, max) {
 }
 
 function publicUser(u) {
-  return { id: u.id, username: u.username, displayName: u.display_name, avatarColor: u.avatar_color, avatarUrl: u.avatar_url, createdAt: u.created_at };
+  return { id: u.id, username: u.username, displayName: u.display_name, avatarColor: u.avatar_color, avatarUrl: u.avatar_url, createdAt: u.created_at,
+    isAdmin: !!u.is_admin || isBootstrapAdmin(u.username) };
 }
 
 async function removeBlobs(urls) {
@@ -32,21 +33,34 @@ async function removeBlobs(urls) {
 // ---------- auth ----------
 async function register(req) {
   const { username, displayName, password, inviteCode } = req.body || {};
-  const expected = process.env.INVITE_CODE;
-  if (expected && String(inviteCode || '').trim().toLowerCase() !== expected.trim().toLowerCase()) {
-    throw new HttpError(403, 'That invite code is not right. Ask a Wave 49A admin for it.');
-  }
   const uname = clean(username, 30)?.toLowerCase();
   if (!uname || !/^[a-z0-9_.]{3,30}$/.test(uname)) throw new HttpError(400, 'Username must be 3–30 letters, numbers, dots or underscores.');
   const name = clean(displayName, 40) || uname;
   if (!password || String(password).length < 6) throw new HttpError(400, 'Password must be at least 6 characters.');
   const exists = await sql`SELECT 1 FROM users WHERE username = ${uname}`;
   if (exists.length) throw new HttpError(409, 'That username is taken.');
+  const admin = isBootstrapAdmin(uname);
+  const inviteId = admin ? null : await useInvite(inviteCode);
   const hash = await bcrypt.hash(String(password), 10);
   const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-  const rows = await sql`INSERT INTO users (username, display_name, password_hash, avatar_color)
-    VALUES (${uname}, ${name}, ${hash}, ${color}) RETURNING *`;
+  const rows = await sql`INSERT INTO users (username, display_name, password_hash, avatar_color, is_admin, invite_id)
+    VALUES (${uname}, ${name}, ${hash}, ${color}, ${admin}, ${inviteId}) RETURNING *`;
   return { token: await signToken(rows[0].id), user: publicUser(rows[0]) };
+}
+
+// Checks an invite code and counts one use. Returns the code's id (null for the optional INVITE_CODE master code).
+async function useInvite(raw) {
+  const code = String(raw || '').trim();
+  if (!code) throw new HttpError(403, 'You need an invite code. Ask a Wave 49A admin for one.');
+  const rows = await sql`UPDATE invite_codes SET uses = uses + 1
+    WHERE lower(code) = lower(${code}) AND NOT revoked
+      AND (expires_at IS NULL OR expires_at > now())
+      AND (max_uses IS NULL OR uses < max_uses)
+    RETURNING id`;
+  if (rows[0]) return rows[0].id;
+  const master = process.env.INVITE_CODE;
+  if (master && code.toLowerCase() === master.trim().toLowerCase()) return null;
+  throw new HttpError(403, 'That invite code is not valid, used up, or expired. Ask a Wave 49A admin for a new one.');
 }
 
 async function login(req) {
@@ -282,14 +296,86 @@ async function upload(req) {
   });
 }
 
+// ---------- admin ----------
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function randomCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const chars = [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+  return `W49A-${chars.slice(0, 4)}-${chars.slice(4)}`;
+}
+
+function inviteOut(c) {
+  const expired = c.expires_at && new Date(c.expires_at) <= new Date();
+  const full = c.max_uses !== null && c.uses >= c.max_uses;
+  return {
+    id: c.id, code: c.code, label: c.label, maxUses: c.max_uses, uses: c.uses, expiresAt: c.expires_at,
+    revoked: c.revoked, createdAt: c.created_at, createdBy: c.creator_name,
+    status: c.revoked ? 'revoked' : expired ? 'expired' : full ? 'used up' : 'active',
+    members: c.members || [],
+  };
+}
+
+async function listInvites() {
+  const rows = await sql`
+    SELECT c.*, u.display_name AS creator_name,
+      COALESCE((SELECT json_agg(m.display_name ORDER BY m.created_at) FROM users m WHERE m.invite_id = c.id), '[]'::json) AS members
+    FROM invite_codes c LEFT JOIN users u ON u.id = c.created_by
+    ORDER BY c.revoked, c.created_at DESC`;
+  return { invites: rows.map(inviteOut) };
+}
+
+async function createInvite(req, me) {
+  const label = clean(req.body?.label, 60);
+  const custom = clean(req.body?.code, 40);
+  if (custom && !/^[A-Za-z0-9-]{4,40}$/.test(custom)) throw new HttpError(400, 'Custom codes can use letters, numbers and dashes (4–40 characters).');
+  const maxUses = Number(req.body?.maxUses) > 0 ? Math.min(Math.floor(Number(req.body.maxUses)), 10000) : null;
+  const days = Number(req.body?.expiresInDays) > 0 ? Math.min(Number(req.body.expiresInDays), 3650) : null;
+  const expiresAt = days ? new Date(Date.now() + days * 864e5).toISOString() : null;
+  const code = custom || randomCode();
+  const clash = await sql`SELECT 1 FROM invite_codes WHERE lower(code) = lower(${code})`;
+  if (clash.length) throw new HttpError(409, 'That code already exists.');
+  const rows = await sql`INSERT INTO invite_codes (code, label, max_uses, expires_at, created_by)
+    VALUES (${code}, ${label}, ${maxUses}, ${expiresAt}, ${me.id}) RETURNING *`;
+  return { invite: inviteOut({ ...rows[0], creator_name: me.display_name }) };
+}
+
+async function setInviteRevoked(id, revoked) {
+  const rows = await sql`UPDATE invite_codes SET revoked = ${revoked} WHERE id = ${id} RETURNING id`;
+  if (!rows[0]) throw new HttpError(404, 'Invite not found.');
+  return { ok: true };
+}
+
+async function adminMembers() {
+  const rows = await sql`
+    SELECT u.id, u.username, u.display_name, u.avatar_color, u.avatar_url, u.created_at, u.is_admin,
+      c.label AS invite_label, c.code AS invite_code
+    FROM users u LEFT JOIN invite_codes c ON c.id = u.invite_id ORDER BY u.created_at`;
+  return {
+    members: rows.map((u) => ({
+      ...publicUser(u), inviteLabel: u.invite_label, inviteCode: u.invite_code,
+      lockedAdmin: isBootstrapAdmin(u.username),
+    })),
+  };
+}
+
+async function setAdmin(id, req, me) {
+  const value = !!req.body?.isAdmin;
+  const rows = await sql`SELECT username FROM users WHERE id = ${id}`;
+  if (!rows[0]) throw new HttpError(404, 'Member not found.');
+  if (!value && id === me.id) throw new HttpError(400, 'You cannot remove your own admin access.');
+  if (!value && isBootstrapAdmin(rows[0].username)) throw new HttpError(400, 'This person is an admin through ADMIN_USERNAMES in the Vercel settings.');
+  await sql`UPDATE users SET is_admin = ${value} WHERE id = ${id}`;
+  return { ok: true };
+}
+
 // ---------- router ----------
 export async function route(req, path, url) {
   const method = req.method;
   const seg = path.split('/').filter(Boolean);
   const id = seg[1] ? Number(seg[1]) : null;
-  if (seg[1] && !Number.isInteger(id) && seg[0] !== 'auth') throw new HttpError(404, 'Not found.');
+  if (seg[1] && !Number.isInteger(id) && seg[0] !== 'auth' && seg[0] !== 'admin') throw new HttpError(404, 'Not found.');
 
-  if (seg[0] === 'health') return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: !!process.env.INVITE_CODE };
+  if (seg[0] === 'health') return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: true };
 
   await migrate();
 
@@ -322,6 +408,17 @@ export async function route(req, path, url) {
   }
   if (seg[0] === 'comments' && id && method === 'DELETE') return deleteComment(id, me);
   if (seg[0] === 'members' && method === 'GET') return members();
+
+  if (seg[0] === 'admin') {
+    requireAdmin(me);
+    const sub = seg[1];
+    const subId = seg[2] ? Number(seg[2]) : null;
+    if (sub === 'invites' && !subId && method === 'GET') return listInvites();
+    if (sub === 'invites' && !subId && method === 'POST') return createInvite(req, me);
+    if (sub === 'invites' && subId && method === 'PATCH') return setInviteRevoked(subId, !!req.body?.revoked);
+    if (sub === 'members' && !subId && method === 'GET') return adminMembers();
+    if (sub === 'members' && subId && method === 'PATCH') return setAdmin(subId, req, me);
+  }
   if (seg[0] === 'gifs' && method === 'GET') return gifs(url);
 
   throw new HttpError(404, 'Not found.');

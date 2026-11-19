@@ -8,8 +8,9 @@ const WORDS = ['training days', 'graveyard shifts', 'first calls', 'payday feast
 
 export default function AuthPage() {
   const { signIn } = useAuth();
-  const [mode, setMode] = useState('login');
-  const [f, setF] = useState({ username: '', password: '', displayName: '', inviteCode: '' });
+  const linkCode = new URLSearchParams(window.location.search).get('invite') || '';
+  const [mode, setMode] = useState(linkCode ? 'register' : 'login');
+  const [f, setF] = useState({ username: '', password: '', displayName: '', inviteCode: linkCode });
   const [needsInvite, setNeedsInvite] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -32,6 +33,7 @@ export default function AuthPage() {
     setError('');
     try {
       await signIn(mode, f);
+      if (linkCode) window.history.replaceState(null, '', '/');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -107,7 +109,7 @@ export default function AuthPage() {
           {mode === 'register' && needsInvite && (
             <motion.label className="field" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
               <span>Invite code</span>
-              <input className="input" value={f.inviteCode} onChange={set('inviteCode')} placeholder="Ask your wave admin" required />
+              <input className="input" value={f.inviteCode} onChange={set('inviteCode')} placeholder="Ask your wave admin" />
             </motion.label>
           )}
         </AnimatePresence>

@@ -78,6 +78,19 @@ export function migrate() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (memory_id, user_id, emoji)
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS invite_codes (
+        id SERIAL PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL,
+        label TEXT,
+        max_uses INTEGER,
+        uses INTEGER NOT NULL DEFAULT 0,
+        expires_at TIMESTAMPTZ,
+        revoked BOOLEAN NOT NULL DEFAULT false,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_id INTEGER REFERENCES invite_codes(id) ON DELETE SET NULL`;
       await sql`CREATE INDEX IF NOT EXISTS memories_album_idx ON memories(album_id, created_at DESC)`;
       await sql`CREATE INDEX IF NOT EXISTS comments_memory_idx ON comments(memory_id, created_at)`;
     })().catch((e) => {

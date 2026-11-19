@@ -13,6 +13,7 @@ import Home from './pages/Home.jsx';
 import Albums from './pages/Albums.jsx';
 import AlbumPage from './pages/AlbumPage.jsx';
 import Crew from './pages/Crew.jsx';
+import Admin from './pages/Admin.jsx';
 import { Logo } from './components/Nav.jsx';
 
 function Page({ children }) {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/albums" element={<Page><Albums /></Page>} />
           <Route path="/albums/:id" element={<Page><AlbumPage /></Page>} />
           <Route path="/crew" element={<Page><Crew /></Page>} />
+          <Route path="/admin" element={<Page><Admin /></Page>} />
           <Route path="*" element={<Page><Home /></Page>} />
         </Routes>
       </AnimatePresence>
