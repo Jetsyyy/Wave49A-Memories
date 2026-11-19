@@ -15,11 +15,14 @@ export default function Crew() {
 
   return (
     <section className="section dark page-top">
-      <Reveal>
-        <p className="eyebrow light">The crew</p>
-        <h2 className="display">Wave 49A</h2>
-        <p className="lede light">{members ? `${members.length} of us and counting.` : ''}</p>
-      </Reveal>
+      <div className="crew-head">
+        <div className="class-bg class-bg--soft" aria-hidden />
+        <Reveal>
+          <p className="eyebrow light">The crew</p>
+          <h2 className="display">Wave 49A</h2>
+          <p className="lede light">{members ? `${members.length} of us and counting.` : ''}</p>
+        </Reveal>
+      </div>
       {!members ? (
         <Spinner />
       ) : (

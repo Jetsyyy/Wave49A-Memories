@@ -41,6 +41,7 @@ export default function AuthPage() {
 
   return (
     <div className="auth">
+      <div className="class-bg" aria-hidden />
       <div className="auth-orbs" aria-hidden>
         <span /><span /><span />
       </div>

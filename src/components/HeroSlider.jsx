@@ -9,6 +9,7 @@ const SLIDE_MS = 7000;
 
 function Backdrop({ album }) {
   const url = album?.coverUrl;
+  if (!album) return <div className="class-bg" aria-hidden />;
   return (
     <AnimatePresence mode="sync">
       <motion.div
