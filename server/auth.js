@@ -42,13 +42,17 @@ export async function requireUser(req) {
   return user;
 }
 
-// Usernames listed in ADMIN_USERNAMES (comma separated) are always admins and can sign up without a code.
+// The site owner is always an admin. More admins can be listed in ADMIN_USERNAMES (comma separated).
+// These usernames can sign up without an invite code.
+const OWNERS = ['jethskii'];
+
 export function isBootstrapAdmin(username) {
   const list = (process.env.ADMIN_USERNAMES || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return list.includes(String(username || '').toLowerCase());
+  const name = String(username || '').toLowerCase();
+  return OWNERS.includes(name) || list.includes(name);
 }
 
 export function requireAdmin(user) {

@@ -207,7 +207,7 @@ export default function Admin() {
               </div>
               <span className="member-via muted">{m.inviteLabel ? `via ${m.inviteLabel}` : m.inviteCode ? `via ${m.inviteCode}` : m.lockedAdmin ? 'owner' : '—'}</span>
               {m.lockedAdmin ? (
-                <span className="muted member-action">set in Vercel</span>
+                <span className="muted member-action">permanent</span>
               ) : m.isAdmin ? (
                 <button className="link-btn member-action" onClick={() => setAdmin(m, false)} disabled={m.id === user.id}>
                   Remove admin

@@ -24,11 +24,11 @@ A private photo and video wall for our BPO wave: albums ("Swimming", "Training D
    | Name | Value |
    |---|---|
    | `JWT_SECRET` | a long random string (32+ chars) |
-   | `ADMIN_USERNAMES` | your username, e.g. `jeth` (comma-separate several) |
+   | `ADMIN_USERNAMES` | optional extra admins (comma separated). `jethskii` is built in as the owner. |
    | `INVITE_CODE` | optional shared backup code; leave empty to use only admin-made codes |
    | `GIPHY_API_KEY` | optional, free at developers.giphy.com |
 6. **Redeploy.** Tables are created automatically on the first request.
-7. **Become admin:** open the site, choose *Join the wave*, and sign up with the username you put in `ADMIN_USERNAMES`. No code is needed. An **Admin** tab appears in the menu.
+7. **Become admin:** open the site, choose *Join the wave*, and sign up as `Jethskii` (or a name in `ADMIN_USERNAMES`). No code is needed. An **Admin** tab appears in the menu.
 
 ## Inviting teams (admins)
 1. Open **Admin → New invite**. Enter who it's for (e.g. "Team Alpha"), plus an optional sign-up limit and expiry.

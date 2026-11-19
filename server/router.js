@@ -363,7 +363,7 @@ async function setAdmin(id, req, me) {
   const rows = await sql`SELECT username FROM users WHERE id = ${id}`;
   if (!rows[0]) throw new HttpError(404, 'Member not found.');
   if (!value && id === me.id) throw new HttpError(400, 'You cannot remove your own admin access.');
-  if (!value && isBootstrapAdmin(rows[0].username)) throw new HttpError(400, 'This person is an admin through ADMIN_USERNAMES in the Vercel settings.');
+  if (!value && isBootstrapAdmin(rows[0].username)) throw new HttpError(400, 'This person is a permanent admin (site owner or listed in ADMIN_USERNAMES).');
   await sql`UPDATE users SET is_admin = ${value} WHERE id = ${id}`;
   return { ok: true };
 }
