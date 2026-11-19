@@ -20,11 +20,20 @@ function publicUser(u) {
     isAdmin: !!u.is_admin || isBootstrapAdmin(u.username) };
 }
 
+// Vercel normally names it BLOB_READ_WRITE_TOKEN, but a custom prefix chosen when connecting the
+// store gives e.g. MYSTORE_READ_WRITE_TOKEN, so accept any *_READ_WRITE_TOKEN holding a Blob token.
+function blobToken() {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(process.env).find((k) => /_READ_WRITE_TOKEN$/.test(k) && /^vercel_blob_rw_/.test(process.env[k] || ''));
+  return key ? process.env[key] : null;
+}
+
 async function removeBlobs(urls) {
   const list = urls.filter(Boolean);
-  if (!list.length || !process.env.BLOB_READ_WRITE_TOKEN) return;
+  const token = blobToken();
+  if (!list.length || !token) return;
   try {
-    await del(list);
+    await del(list, { token });
   } catch (e) {
     console.warn('Blob delete failed', e.message);
   }
@@ -281,8 +290,10 @@ async function gifs(url) {
 }
 
 async function upload(req) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) throw new HttpError(500, 'BLOB_READ_WRITE_TOKEN is not set. Connect a Vercel Blob store.');
+  const token = blobToken();
+  if (!token) throw new HttpError(500, 'Photo storage is not connected. In Vercel, connect the Blob store to this project, then redeploy.');
   return handleUpload({
+    token,
     body: req.body,
     request: req,
     onBeforeGenerateToken: async () => {
@@ -375,7 +386,7 @@ export async function route(req, path, url) {
   const id = seg[1] ? Number(seg[1]) : null;
   if (seg[1] && !Number.isInteger(id) && seg[0] !== 'auth' && seg[0] !== 'admin') throw new HttpError(404, 'Not found.');
 
-  if (seg[0] === 'health') return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: true };
+  if (seg[0] === 'health') return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: true, storage: !!blobToken() };
 
   await migrate();
 

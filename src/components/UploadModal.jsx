@@ -96,7 +96,15 @@ export default function UploadModal() {
       closeUpload();
       nav(`/albums/${albumId}`);
     } catch (e) {
-      setError(e.message || 'Upload failed.');
+      let msg = e.message || 'Upload failed.';
+      // The Blob client hides the server's reason behind a generic message; ask the server what's wrong.
+      if (/client token/i.test(msg)) {
+        const h = await fetch('/api/health').then((r) => r.json()).catch(() => null);
+        msg = h && !h.storage
+          ? 'Photo storage is not connected yet. An admin needs to connect the Blob store in Vercel and redeploy.'
+          : 'Could not start the upload. Try logging out and back in, then upload again.';
+      }
+      setError(msg);
     } finally {
       setBusy(false);
     }
