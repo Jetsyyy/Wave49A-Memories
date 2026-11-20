@@ -476,6 +476,51 @@ select.input { appearance: auto; }
 .crew-stats { display: flex; gap: 14px; margin: 10px 0 6px; font-size: 13px; color: var(--muted-dark); }
 .crew-stats b { color: var(--accent); font-size: 16px; }
 
+/* profile photo */
+.avatar-edit { position: relative; border-radius: 50%; transition: transform 0.25s var(--ease); }
+.avatar-edit:hover { transform: scale(1.05); }
+.avatar-edit::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px dashed rgba(245, 176, 65, 0.6); animation: spin 14s linear infinite; }
+.avatar-edit-badge {
+  position: absolute; right: -2px; bottom: -2px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); font-size: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.small-note { font-size: 12px; margin: 0 0 8px; }
+
+/* viewer extras */
+.viewer-actions { display: flex; gap: 8px; margin-top: 12px; }
+.save-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600; border: 1px solid var(--line-dark); color: var(--text-dark); transition: all 0.2s;
+}
+.save-btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.reacted { margin: 2px 0 6px; }
+.reacted-summary { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font-size: 12.5px; color: var(--muted-dark); padding: 6px 4px; border-radius: 10px; }
+.reacted-summary:hover { background: var(--ink-3); }
+.reacted-summary strong { color: var(--text-dark); font-weight: 600; }
+.reacted-summary .avatar { box-shadow: 0 0 0 2px var(--ink-2); }
+.reacted-caret { margin-left: auto; transition: transform 0.25s; }
+.reacted-caret.open { transform: rotate(180deg); }
+.reacted-list { list-style: none; margin: 4px 0 0; padding: 4px; overflow: hidden; max-height: 220px; overflow-y: auto; background: var(--ink-3); border-radius: 12px; }
+.reacted-list li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+.reacted-list li:hover { background: rgba(255,255,255,0.04); }
+.reacted-name { display: grid; line-height: 1.2; }
+.reacted-name strong { font-size: 13px; }
+.reacted-name small { font-size: 11px; color: var(--muted-dark); }
+.reacted-emojis { margin-left: auto; font-size: 17px; letter-spacing: 2px; }
+
+/* mentions */
+.mention-wrap { position: relative; flex: 1; min-width: 0; }
+.mention-wrap .input { width: 100%; }
+.mention-list {
+  position: absolute; left: 0; min-width: min(280px, 80vw); bottom: calc(100% + 8px); z-index: 6; list-style: none; margin: 0; padding: 4px;
+  background: #1a1e24; border: 1px solid var(--line-dark); border-radius: 12px; box-shadow: 0 -16px 40px rgba(0,0,0,0.45);
+}
+.mention-list button { display: flex; align-items: center; gap: 8px; width: 100%; white-space: nowrap; padding: 7px 10px; border-radius: 8px; text-align: left; font-size: 13px; }
+.mention-list button span { color: var(--muted-dark); font-size: 12px; }
+.mention-list button.on { background: rgba(245, 176, 65, 0.14); }
+.mention-list button.on strong { color: var(--accent); }
+.mention { color: var(--accent); font-weight: 600; background: rgba(245, 176, 65, 0.12); padding: 0 4px; border-radius: 5px; }
+
 /* album covers */
 .cover-pick {
   position: relative; height: 150px; border-radius: 14px; overflow: hidden;

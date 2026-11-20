@@ -104,10 +104,19 @@ async function login(req) {
 async function updateMe(req, me) {
   const name = clean(req.body?.displayName, 40);
   const color = COLORS.includes(req.body?.avatarColor) ? req.body.avatarColor : null;
+  // avatarUrl: a new uploaded photo, null to remove it, or left out to keep the current one.
+  const touchAvatar = req.body && 'avatarUrl' in req.body;
+  const avatar = touchAvatar ? clean(req.body.avatarUrl, 600) : null;
+  if (avatar && !BLOB_URL.test(avatar)) throw new HttpError(400, 'Profile photo must be an uploaded image.');
   const rows = await sql`UPDATE users SET
       display_name = COALESCE(${name}, display_name),
-      avatar_color = COALESCE(${color}, avatar_color)
+      avatar_color = COALESCE(${color}, avatar_color),
+      avatar_url = CASE WHEN ${touchAvatar} THEN ${avatar} ELSE avatar_url END
     WHERE id = ${me.id} RETURNING *`;
+  // Clean up the old profile photo file once it's replaced or removed.
+  if (touchAvatar && me.avatar_url && me.avatar_url !== avatar && me.avatar_url.includes('/avatars/')) {
+    await removeBlobs([me.avatar_url]);
+  }
   return { user: publicUser(rows[0]) };
 }
 
@@ -254,11 +263,15 @@ async function getMemory(id, me) {
     FROM comments c LEFT JOIN users u ON u.id = c.user_id
     WHERE c.memory_id = ${id} ORDER BY c.created_at`;
   const reactors = await sql`
-    SELECT r.emoji, u.display_name FROM reactions r JOIN users u ON u.id = r.user_id
+    SELECT r.emoji, r.created_at, u.id, u.username, u.display_name, u.avatar_color, u.avatar_url
+    FROM reactions r JOIN users u ON u.id = r.user_id
     WHERE r.memory_id = ${id} ORDER BY r.created_at`;
   return {
     memory,
-    reactors,
+    reactors: reactors.map((r) => ({
+      emoji: r.emoji, display_name: r.display_name, reactedAt: r.created_at,
+      user: { id: r.id, username: r.username, displayName: r.display_name, avatarColor: r.avatar_color, avatarUrl: r.avatar_url },
+    })),
     comments: comments.map((c) => ({
       id: c.id, body: c.body, gifUrl: c.gif_url, createdAt: c.created_at,
       user: c.user_id ? { id: c.user_id, username: c.username, displayName: c.display_name, avatarColor: c.avatar_color, avatarUrl: c.avatar_url } : null,

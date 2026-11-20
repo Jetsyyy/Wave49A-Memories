@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -82,31 +82,97 @@ export function ProfileForm() {
   const { user, setUser } = useAuth();
   const [name, setName] = useState(user.displayName);
   const [color, setColor] = useState(user.avatarColor);
+  const [photo, setPhoto] = useState(null); // newly picked File
+  const [removed, setRemoved] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  // Start fresh from the saved profile every time the window opens.
+  useEffect(() => {
+    if (!profile) return;
+    setName(user.displayName);
+    setColor(user.avatarColor);
+    setPhoto(null);
+    setRemoved(false);
+    setError('');
+  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!photo) return setPreview(null);
+    const url = URL.createObjectURL(photo);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
+
+  const shownUrl = preview || (removed ? null : user.avatarUrl);
 
   const submit = async (e) => {
     e.preventDefault();
+    setBusy(true);
+    setError('');
     try {
-      const d = await api('auth/me', { method: 'PATCH', body: { displayName: name, avatarColor: color } });
+      const body = { displayName: name, avatarColor: color };
+      if (photo) body.avatarUrl = await uploadFile(photo, `avatars/${user.id}`, undefined, { maxSide: 512 });
+      else if (removed) body.avatarUrl = null;
+      const d = await api('auth/me', { method: 'PATCH', body });
       setUser(d.user);
       closeProfile();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <Modal open={profile} onClose={closeProfile} className="sheet sheet--sm">
+    <Modal open={profile} onClose={busy ? undefined : closeProfile} className="sheet sheet--sm">
       <form onSubmit={submit}>
         <h2 className="sheet-title">Your profile</h2>
         <div className="profile-preview">
-          <Avatar user={{ ...user, displayName: name || user.displayName, avatarColor: color }} size={72} />
+          <button type="button" className="avatar-edit" onClick={() => fileRef.current?.click()} aria-label="Change profile photo">
+            <Avatar user={{ ...user, displayName: name || user.displayName, avatarColor: color, avatarUrl: shownUrl }} size={96} />
+            <span className="avatar-edit-badge">📷</span>
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) {
+                setPhoto(f);
+                setRemoved(false);
+              }
+              e.target.value = '';
+            }}
+          />
           <span className="muted">@{user.username}</span>
+          <div className="row">
+            <button type="button" className="link-btn" onClick={() => fileRef.current?.click()}>
+              {shownUrl ? 'Change photo' : 'Upload a photo'}
+            </button>
+            {shownUrl && (
+              <button
+                type="button"
+                className="link-btn danger"
+                onClick={() => {
+                  setPhoto(null);
+                  setRemoved(true);
+                }}
+              >
+                Remove photo
+              </button>
+            )}
+          </div>
         </div>
         <label className="field">
           <span>Display name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
         </label>
+        <p className="muted small-note">Color shows behind your initials when you have no photo.</p>
         <div className="color-pick">
           {AVATAR_COLORS.map((c) => (
             <button type="button" key={c} style={{ background: c }} className={c === color ? 'on' : ''} onClick={() => setColor(c)} aria-label={`Color ${c}`} />
@@ -114,8 +180,8 @@ export function ProfileForm() {
         </div>
         {error && <p className="error">{error}</p>}
         <div className="sheet-actions">
-          <button type="button" className="btn btn--ghost-dark" onClick={closeProfile}>Cancel</button>
-          <button className="btn btn--accent">Save</button>
+          <button type="button" className="btn btn--ghost-dark" onClick={closeProfile} disabled={busy}>Cancel</button>
+          <button className="btn btn--accent" disabled={busy}>{busy ? (photo ? 'Uploading…' : 'Saving…') : 'Save'}</button>
         </div>
       </form>
     </Modal>

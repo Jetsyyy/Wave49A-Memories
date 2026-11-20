@@ -2,8 +2,8 @@ import { upload, uploadPresigned } from '@vercel/blob/client';
 import { getToken } from './api.js';
 
 // Big phone photos are shrunk to save Blob storage. Videos and GIFs are uploaded as-is.
-export async function shrinkImage(file, maxSide = 2560) {
-  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 1.5 * 1024 * 1024) return file;
+export async function shrinkImage(file, maxSide = 2560, force = false) {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif' || (!force && file.size < 1.5 * 1024 * 1024)) return file;
   try {
     const bmp = await createImageBitmap(file);
     const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
@@ -32,10 +32,11 @@ function uploadMode() {
 }
 
 // Uploads one file to Vercel Blob under `folder/` and returns its public URL.
-export async function uploadFile(file, folder, onProgress) {
+// maxSide: resize photos so their longest side is at most this many pixels (always applied for avatars).
+export async function uploadFile(file, folder, onProgress, { maxSide } = {}) {
   const health = await uploadMode();
   const presigned = health.uploadMode === 'presigned';
-  const ready = await shrinkImage(file);
+  const ready = maxSide ? await shrinkImage(file, maxSide, true) : await shrinkImage(file);
   const safe = ready.name.replace(/[^\w.-]+/g, '_').slice(-80);
   const send = presigned ? uploadPresigned : upload;
   try {

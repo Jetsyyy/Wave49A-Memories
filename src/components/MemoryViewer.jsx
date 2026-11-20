@@ -6,6 +6,75 @@ import { useData } from '../data.jsx';
 import { REACTIONS, fmtDate, fmtDateTime, timeAgo } from '../utils.js';
 import { Avatar, Media, Modal, Spinner } from './bits.jsx';
 import GifPicker from './GifPicker.jsx';
+import { MentionInput, MentionText, useMembers } from './Mentions.jsx';
+
+// Vercel Blob serves the file as a download (keeping its name) when ?download=1 is added.
+function downloadUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith('.blob.vercel-storage.com')) u.searchParams.set('download', '1');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+// Faces of everyone who reacted; tap to see each person and their emojis.
+function ReactedBy({ reactors, me }) {
+  const [open, setOpen] = useState(false);
+  const people = [];
+  const byUser = new Map();
+  reactors.forEach((r) => {
+    let p = byUser.get(r.user.id);
+    if (!p) {
+      p = { user: r.user, emojis: [] };
+      byUser.set(r.user.id, p);
+      people.push(p);
+    }
+    p.emojis.push(r.emoji);
+  });
+  const names = people.map((p) => (p.user.id === me.id ? 'You' : p.user.displayName.split(' ')[0]));
+  const summary =
+    names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} other${names.length - 2 === 1 ? '' : 's'}`;
+
+  return (
+    <div className="reacted">
+      <button type="button" className="reacted-summary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="stack">
+          {people.slice(0, 5).map((p) => (
+            <Avatar key={p.user.id} user={p.user} size={24} />
+          ))}
+        </span>
+        <span>
+          Reacted by <strong>{summary}</strong>
+        </span>
+        <span className={`reacted-caret ${open ? 'open' : ''}`}>▾</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.ul
+            className="reacted-list"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            {people.map((p, i) => (
+              <motion.li key={p.user.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}>
+                <Avatar user={p.user} size={30} />
+                <span className="reacted-name">
+                  <strong>{p.user.id === me.id ? 'You' : p.user.displayName}</strong>
+                  <small>@{p.user.username}</small>
+                </span>
+                <span className="reacted-emojis">{p.emojis.join(' ')}</span>
+              </motion.li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 function Burst({ bursts }) {
   return (
@@ -47,6 +116,7 @@ export default function MemoryViewer() {
   const [caption, setCaption] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef(null);
+  const members = useMembers();
   const close = useCallback(() => setViewer(null), [setViewer]);
 
   const load = useCallback(
@@ -215,6 +285,12 @@ export default function MemoryViewer() {
               )}
             </dl>
 
+            <div className="viewer-actions">
+              <a className="save-btn" href={downloadUrl(memory.mediaUrl)} download target="_blank" rel="noreferrer">
+                ⬇ Save {memory.mediaType === 'video' ? 'video' : 'photo'}
+              </a>
+            </div>
+
             {editing ? (
               <div className="caption-edit">
                 <textarea className="input" rows={3} value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={500} autoFocus />
@@ -239,7 +315,7 @@ export default function MemoryViewer() {
               {REACTIONS.map((e) => {
                 const n = memory.reactions?.[e] || 0;
                 const on = memory.myReactions?.includes(e);
-                const who = detail?.reactors?.filter((r) => r.emoji === e).map((r) => r.display_name);
+                const who = detail?.reactors?.filter((r) => r.emoji === e).map((r) => r.user.displayName);
                 return (
                   <motion.button
                     key={e}
@@ -254,6 +330,8 @@ export default function MemoryViewer() {
                 );
               })}
             </div>
+
+            {detail?.reactors?.length > 0 && <ReactedBy reactors={detail.reactors} me={user} />}
 
             <div className="comments">
               {!detail ? (
@@ -272,7 +350,11 @@ export default function MemoryViewer() {
                           <button className="link-btn tiny" onClick={() => removeComment(c.id)}>delete</button>
                         )}
                       </div>
-                      {c.body && <p className={isEmojiOnly(c.body) ? 'big-emoji' : ''}>{c.body}</p>}
+                      {c.body && (
+                        <p className={isEmojiOnly(c.body) ? 'big-emoji' : ''}>
+                          <MentionText text={c.body} members={members} />
+                        </p>
+                      )}
                       {c.gifUrl && <img className="comment-gif" src={c.gifUrl} alt="GIF" loading="lazy" />}
                     </div>
                   </motion.div>
@@ -301,7 +383,14 @@ export default function MemoryViewer() {
                 <button type="button" className={`gif-toggle ${picker ? 'on' : ''}`} onClick={() => setPicker((p) => !p)}>
                   GIF
                 </button>
-                <input className="input" placeholder="Write a comment…" value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} />
+                <MentionInput
+                  className="input"
+                  placeholder="Write a comment… type @ to mention"
+                  value={text}
+                  onChange={setText}
+                  members={members}
+                  maxLength={1000}
+                />
                 <button className="btn btn--accent btn--sm" disabled={sending || !text.trim()}>
                   Send
                 </button>
