@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../data.jsx';
 import MemoryGrid from '../components/MemoryGrid.jsx';
+import { CoverModal } from '../components/Cover.jsx';
 import { Avatar, Spinner, SplitTitle } from '../components/bits.jsx';
 import { fmtDate, timeAgo } from '../utils.js';
 
@@ -16,6 +17,7 @@ export default function AlbumPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
+  const [coverOpen, setCoverOpen] = useState(false);
   const { scrollY } = useScroll();
   const bgY = useTransform(scrollY, [0, 600], [0, 180]);
   const fade = useTransform(scrollY, [0, 400], [1, 0.2]);
@@ -44,7 +46,7 @@ export default function AlbumPage() {
   if (!data) return <div className="section dark page-top center"><Spinner /></div>;
 
   const { album } = data;
-  const cover = data.memories.find((m) => m.mediaType === 'image')?.mediaUrl;
+  const cover = album.coverUrl;
 
   const removeAlbum = async () => {
     if (!confirm(`Delete “${album.title}” and all ${album.memoryCount} memories in it? This cannot be undone.`)) return;
@@ -79,6 +81,9 @@ export default function AlbumPage() {
           </div>
           <div className="hero-actions">
             <button className="btn btn--accent" onClick={() => openUpload(album.id)}>+ Add to this album</button>
+            {album.canEdit && (
+              <button className="btn btn--ghost" onClick={() => setCoverOpen(true)}>🖼 Change cover</button>
+            )}
             {album.createdBy === user.id && (
               <button className="btn btn--ghost" onClick={removeAlbum}>Delete album</button>
             )}
@@ -108,6 +113,10 @@ export default function AlbumPage() {
           </>
         )}
       </section>
+
+      {album.canEdit && (
+        <CoverModal open={coverOpen} onClose={() => setCoverOpen(false)} album={album} memories={data.memories} onSaved={refresh} />
+      )}
     </>
   );
 }

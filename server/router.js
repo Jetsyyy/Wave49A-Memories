@@ -116,7 +116,7 @@ async function listAlbums() {
   const rows = await sql`
     SELECT a.*, to_char(a.event_date, 'YYYY-MM-DD') AS event_on, u.display_name AS creator_name,
       (SELECT COUNT(*)::int FROM memories m WHERE m.album_id = a.id) AS memory_count,
-      (SELECT m.media_url FROM memories m WHERE m.album_id = a.id AND m.media_type = 'image' ORDER BY m.created_at DESC LIMIT 1) AS cover_url,
+      (SELECT m.media_url FROM memories m WHERE m.album_id = a.id AND m.media_type = 'image' ORDER BY m.created_at DESC LIMIT 1) AS auto_cover,
       (SELECT m.media_url FROM memories m WHERE m.album_id = a.id ORDER BY m.created_at DESC LIMIT 1) AS latest_url,
       (SELECT m.media_type FROM memories m WHERE m.album_id = a.id ORDER BY m.created_at DESC LIMIT 1) AS latest_type,
       (SELECT MAX(m.created_at) FROM memories m WHERE m.album_id = a.id) AS last_upload_at
@@ -129,9 +129,38 @@ function albumOut(a) {
   return {
     id: a.id, title: a.title, subtitle: a.subtitle, description: a.description, emoji: a.emoji,
     eventDate: a.event_on ?? null, createdAt: a.created_at, createdBy: a.created_by, creatorName: a.creator_name,
-    memoryCount: a.memory_count ?? 0, coverUrl: a.cover_url, latestUrl: a.latest_url, latestType: a.latest_type,
-    lastUploadAt: a.last_upload_at,
+    memoryCount: a.memory_count ?? 0, latestUrl: a.latest_url, latestType: a.latest_type, lastUploadAt: a.last_upload_at,
+    // A chosen cover wins; otherwise the newest photo in the album.
+    coverUrl: a.cover_url || a.auto_cover || null,
+    hasCustomCover: !!a.cover_url,
   };
+}
+
+const BLOB_URL = /^https:\/\/[^/]+\.blob\.vercel-storage\.com\//;
+
+function coverFromBody(body) {
+  const url = clean(body?.coverUrl, 600);
+  if (url && !BLOB_URL.test(url)) throw new HttpError(400, 'Cover must be an uploaded image.');
+  return url;
+}
+
+// Cover files uploaded just for the cover live under covers/; photos picked from the album don't get deleted.
+async function removeCoverFile(url) {
+  if (url && url.includes('/covers/')) await removeBlobs([url]);
+}
+
+function canEditAlbum(album, me) {
+  return album.created_by === me.id || !!me.is_admin;
+}
+
+async function updateAlbumCover(id, req, me) {
+  const rows = await sql`SELECT created_by, cover_url FROM albums WHERE id = ${id}`;
+  if (!rows[0]) throw new HttpError(404, 'Album not found.');
+  if (!canEditAlbum(rows[0], me)) throw new HttpError(403, 'Only the person who made this album or an admin can change its cover.');
+  const next = coverFromBody(req.body); // null resets to the automatic cover
+  await sql`UPDATE albums SET cover_url = ${next} WHERE id = ${id}`;
+  if (rows[0].cover_url !== next) await removeCoverFile(rows[0].cover_url);
+  return { ok: true, coverUrl: next };
 }
 
 async function createAlbum(req, me) {
@@ -141,8 +170,9 @@ async function createAlbum(req, me) {
   const description = clean(req.body?.description, 500);
   const emoji = clean(req.body?.emoji, 8);
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.eventDate || '') ? req.body.eventDate : null;
-  const rows = await sql`INSERT INTO albums (title, subtitle, description, emoji, event_date, created_by)
-    VALUES (${title}, ${subtitle}, ${description}, ${emoji}, ${eventDate}, ${me.id})
+  const coverUrl = coverFromBody(req.body);
+  const rows = await sql`INSERT INTO albums (title, subtitle, description, emoji, event_date, created_by, cover_url)
+    VALUES (${title}, ${subtitle}, ${description}, ${emoji}, ${eventDate}, ${me.id}, ${coverUrl})
     RETURNING *, to_char(event_date, 'YYYY-MM-DD') AS event_on`;
   return { album: albumOut({ ...rows[0], creator_name: me.display_name }) };
 }
@@ -151,16 +181,21 @@ async function getAlbum(id, me) {
   const rows = await sql`SELECT a.*, to_char(a.event_date, 'YYYY-MM-DD') AS event_on, u.display_name AS creator_name FROM albums a LEFT JOIN users u ON u.id = a.created_by WHERE a.id = ${id}`;
   if (!rows[0]) throw new HttpError(404, 'Album not found.');
   const memories = await memoryQuery(me.id, { albumId: id });
-  return { album: albumOut({ ...rows[0], memory_count: memories.length }), memories };
+  const autoCover = memories.find((m) => m.mediaType === 'image')?.mediaUrl;
+  return {
+    album: { ...albumOut({ ...rows[0], auto_cover: autoCover, memory_count: memories.length }), canEdit: canEditAlbum(rows[0], me) },
+    memories,
+  };
 }
 
 async function deleteAlbum(id, me) {
-  const rows = await sql`SELECT created_by FROM albums WHERE id = ${id}`;
+  const rows = await sql`SELECT created_by, cover_url FROM albums WHERE id = ${id}`;
   if (!rows[0]) throw new HttpError(404, 'Album not found.');
   if (rows[0].created_by !== me.id) throw new HttpError(403, 'Only the person who made this album can delete it.');
   const media = await sql`SELECT media_url FROM memories WHERE album_id = ${id}`;
   await sql`DELETE FROM albums WHERE id = ${id}`;
   await removeBlobs(media.map((m) => m.media_url));
+  await removeCoverFile(rows[0].cover_url);
   return { ok: true };
 }
 
@@ -242,6 +277,8 @@ async function deleteMemory(id, me) {
   if (!rows[0]) throw new HttpError(404, 'Memory not found.');
   if (rows[0].user_id !== me.id) throw new HttpError(403, 'Only the uploader can delete this.');
   await sql`DELETE FROM memories WHERE id = ${id}`;
+  // If this photo was picked as an album cover, fall back to the automatic cover.
+  await sql`UPDATE albums SET cover_url = NULL WHERE cover_url = ${rows[0].media_url}`;
   await removeBlobs([rows[0].media_url]);
   return { ok: true };
 }
@@ -458,6 +495,7 @@ export async function route(req, path, url) {
     if (!id && method === 'POST') return createAlbum(req, me);
     if (id && method === 'GET') return getAlbum(id, me);
     if (id && method === 'DELETE') return deleteAlbum(id, me);
+    if (id && method === 'PATCH') return updateAlbumCover(id, req, me);
   }
   if (seg[0] === 'memories') {
     if (!id && method === 'GET') return { memories: await memoryQuery(me.id, { limit: Math.min(Number(url.searchParams.get('limit')) || 40, 200) }) };

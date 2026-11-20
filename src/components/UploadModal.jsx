@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { upload, uploadPresigned } from '@vercel/blob/client';
 import { useNavigate } from 'react-router-dom';
-import { api, getToken } from '../api.js';
+import { api } from '../api.js';
 import { useData } from '../data.jsx';
+import { uploadFile } from '../upload.js';
 import { Modal } from './bits.jsx';
 
 const MAX_BYTES = 200 * 1024 * 1024;
@@ -11,24 +11,6 @@ const MAX_BYTES = 200 * 1024 * 1024;
 function toDateInput(ms) {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// Big phone photos are shrunk to 2560px JPEGs to save Blob storage. Videos and GIFs are uploaded as-is.
-async function shrinkImage(file) {
-  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 1.5 * 1024 * 1024) return file;
-  try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 2560 / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.86));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
-  } catch {
-    return file; // e.g. HEIC the browser can't decode
-  }
 }
 
 export default function UploadModal() {
@@ -76,39 +58,18 @@ export default function UploadModal() {
     setBusy(true);
     setError('');
     try {
-      // Newer Blob stores only accept presigned uploads; the server says which kind it supports.
-      const health = await fetch('/api/health').then((r) => r.json()).catch(() => ({}));
-      const presigned = health.uploadMode === 'presigned';
       const items = [];
       for (const f of ready) {
-        const file = await shrinkImage(f.file);
-        const safe = file.name.replace(/[^\w.-]+/g, '_').slice(-80);
-        const send = presigned ? uploadPresigned : upload;
-        const blob = await send(`albums/${albumId}/${safe}`, file, {
-          access: 'public',
-          handleUploadUrl: '/api/upload',
-          headers: { Authorization: `Bearer ${getToken()}` },
-          multipart: !presigned && file.size > 20 * 1024 * 1024,
-          contentType: file.type,
-          onUploadProgress: ({ percentage }) => patch(f.key, { progress: percentage }),
-        });
+        const url = await uploadFile(f.file, `albums/${albumId}`, (p) => patch(f.key, { progress: p }));
         patch(f.key, { progress: 100 });
-        items.push({ mediaUrl: blob.url, mediaType: f.type, caption: f.caption, takenAt: f.takenAt });
+        items.push({ mediaUrl: url, mediaType: f.type, caption: f.caption, takenAt: f.takenAt });
       }
       await api('memories', { method: 'POST', body: { albumId: Number(albumId), items } });
       refresh();
       closeUpload();
       nav(`/albums/${albumId}`);
     } catch (e) {
-      let msg = e.message || 'Upload failed.';
-      // The Blob client hides the server's reason behind a generic message; ask the server what's wrong.
-      if (/client token/i.test(msg)) {
-        const h = await fetch('/api/health').then((r) => r.json()).catch(() => null);
-        msg = h && !h.storage
-          ? 'Photo storage is not connected yet. An admin needs to connect the Blob store in Vercel and redeploy.'
-          : 'Could not start the upload. Try logging out and back in, then upload again.';
-      }
-      setError(msg);
+      setError(e.message || 'Upload failed.');
     } finally {
       setBusy(false);
     }

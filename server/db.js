@@ -91,6 +91,7 @@ export function migrate() {
       )`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_id INTEGER REFERENCES invite_codes(id) ON DELETE SET NULL`;
+      await sql`ALTER TABLE albums ADD COLUMN IF NOT EXISTS cover_url TEXT`;
       await sql`CREATE INDEX IF NOT EXISTS memories_album_idx ON memories(album_id, created_at DESC)`;
       await sql`CREATE INDEX IF NOT EXISTS comments_memory_idx ON comments(memory_id, created_at)`;
     })().catch((e) => {

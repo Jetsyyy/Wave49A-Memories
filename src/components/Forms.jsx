@@ -4,7 +4,9 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../data.jsx';
 import { AVATAR_COLORS } from '../utils.js';
+import { uploadFile } from '../upload.js';
 import { Avatar, Modal } from './bits.jsx';
+import { CoverPicker } from './Cover.jsx';
 
 const ALBUM_EMOJIS = ['🏊', '🎉', '🎤', '☕', '🍕', '🏖️', '🎂', '🏆', '🎄', '🌙', '🎳', '📞', '💼', '🌊', '📸', '🫶'];
 
@@ -12,6 +14,7 @@ export function AlbumForm() {
   const { albumForm, closeAlbumForm, refresh } = useData();
   const nav = useNavigate();
   const [f, setF] = useState({ title: '', subtitle: '', description: '', emoji: '🏊', eventDate: '' });
+  const [cover, setCover] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -21,10 +24,12 @@ export function AlbumForm() {
     setBusy(true);
     setError('');
     try {
-      const d = await api('albums', { method: 'POST', body: f });
+      const coverUrl = cover ? await uploadFile(cover, 'covers/new') : null;
+      const d = await api('albums', { method: 'POST', body: { ...f, coverUrl } });
       refresh();
       closeAlbumForm();
       setF({ title: '', subtitle: '', description: '', emoji: '🏊', eventDate: '' });
+      setCover(null);
       nav(`/albums/${d.album.id}`);
     } catch (err) {
       setError(err.message);
@@ -61,10 +66,11 @@ export function AlbumForm() {
           <span>Story</span>
           <textarea className="input" rows={3} value={f.description} onChange={set('description')} placeholder="What happened that day?" maxLength={500} />
         </label>
+        <CoverPicker file={cover} onChange={setCover} />
         {error && <p className="error">{error}</p>}
         <div className="sheet-actions">
           <button type="button" className="btn btn--ghost-dark" onClick={closeAlbumForm}>Cancel</button>
-          <button className="btn btn--accent" disabled={busy}>{busy ? 'Creating…' : 'Create album'}</button>
+          <button className="btn btn--accent" disabled={busy}>{busy ? (cover ? 'Uploading cover…' : 'Creating…') : 'Create album'}</button>
         </div>
       </form>
     </Modal>
