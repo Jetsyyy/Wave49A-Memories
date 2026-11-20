@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
-import { handleUpload } from '@vercel/blob/client';
-import { del } from '@vercel/blob';
+import { handleUpload, handleUploadPresigned } from '@vercel/blob/client';
+import { del, issueSignedToken } from '@vercel/blob';
 import { sql, migrate, HttpError } from './db.js';
 import { signToken, requireUser, requireAdmin, isBootstrapAdmin } from './auth.js';
 
@@ -28,12 +28,31 @@ function blobToken() {
   return key ? process.env[key] : null;
 }
 
+// Newer Blob stores authenticate with the deployment's Vercel OIDC token + BLOB_STORE_ID instead of a
+// read-write token. The OIDC token arrives as a request header and is the same for every request of a
+// deployment, so remember the latest one for helpers (like deletes) that don't see the request.
+let lastOidc = null;
+function rememberOidc(req) {
+  const h = req.headers['x-vercel-oidc-token'];
+  if (h) lastOidc = Array.isArray(h) ? h[0] : h;
+}
+
+// Returns the auth options for Blob calls, preferring OIDC (newer stores) over a read-write token.
+function blobAuth() {
+  const storeId = process.env.BLOB_STORE_ID;
+  const oidcToken = lastOidc || process.env.VERCEL_OIDC_TOKEN;
+  if (storeId && oidcToken) return { mode: 'presigned', opts: { oidcToken, storeId } };
+  const token = blobToken();
+  if (token) return { mode: 'token', opts: { token } };
+  return null;
+}
+
 async function removeBlobs(urls) {
   const list = urls.filter(Boolean);
-  const token = blobToken();
-  if (!list.length || !token) return;
+  const auth = blobAuth();
+  if (!list.length || !auth) return;
   try {
-    await del(list, { token });
+    await del(list, auth.opts);
   } catch (e) {
     console.warn('Blob delete failed', e.message);
   }
@@ -289,9 +308,37 @@ async function gifs(url) {
   };
 }
 
+const UPLOAD_TYPES = ['image/*', 'video/*'];
+
 async function upload(req) {
+  const auth = blobAuth();
+  if (!auth) throw new HttpError(500, 'Photo storage is not connected. In Vercel, connect the Blob store to this project, then redeploy.');
+
+  if (req.body?.type === 'blob.generate-presigned-url' || req.body?.type === 'blob.upload-completed') {
+    if (auth.mode !== 'presigned') throw new HttpError(500, 'Presigned uploads need BLOB_STORE_ID and Vercel OIDC.');
+    return handleUploadPresigned({
+      body: req.body,
+      request: req,
+      getSignedToken: async (pathname) => {
+        await requireUser(req);
+        const token = await issueSignedToken({
+          ...auth.opts,
+          pathname,
+          operations: ['put'],
+          allowedContentTypes: UPLOAD_TYPES,
+          maximumSizeInBytes: MAX_UPLOAD_BYTES,
+          validUntil: Date.now() + 60 * 60 * 1000,
+        });
+        return {
+          token,
+          urlOptions: { allowedContentTypes: UPLOAD_TYPES, maximumSizeInBytes: MAX_UPLOAD_BYTES, addRandomSuffix: true },
+        };
+      },
+    });
+  }
+
   const token = blobToken();
-  if (!token) throw new HttpError(500, 'Photo storage is not connected. In Vercel, connect the Blob store to this project, then redeploy.');
+  if (!token) throw new HttpError(500, 'This store needs presigned uploads. Refresh the page and try again.');
   return handleUpload({
     token,
     body: req.body,
@@ -381,12 +428,16 @@ async function setAdmin(id, req, me) {
 
 // ---------- router ----------
 export async function route(req, path, url) {
+  rememberOidc(req);
   const method = req.method;
   const seg = path.split('/').filter(Boolean);
   const id = seg[1] ? Number(seg[1]) : null;
   if (seg[1] && !Number.isInteger(id) && seg[0] !== 'auth' && seg[0] !== 'admin') throw new HttpError(404, 'Not found.');
 
-  if (seg[0] === 'health') return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: true, storage: !!blobToken() };
+  if (seg[0] === 'health') {
+    const auth = blobAuth();
+    return { ok: true, giphy: !!process.env.GIPHY_API_KEY, invite: true, storage: !!auth, uploadMode: auth?.mode || null };
+  }
 
   await migrate();
 

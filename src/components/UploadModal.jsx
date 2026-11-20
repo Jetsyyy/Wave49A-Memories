@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { upload } from '@vercel/blob/client';
+import { upload, uploadPresigned } from '@vercel/blob/client';
 import { useNavigate } from 'react-router-dom';
 import { api, getToken } from '../api.js';
 import { useData } from '../data.jsx';
@@ -76,15 +76,19 @@ export default function UploadModal() {
     setBusy(true);
     setError('');
     try {
+      // Newer Blob stores only accept presigned uploads; the server says which kind it supports.
+      const health = await fetch('/api/health').then((r) => r.json()).catch(() => ({}));
+      const presigned = health.uploadMode === 'presigned';
       const items = [];
       for (const f of ready) {
         const file = await shrinkImage(f.file);
         const safe = file.name.replace(/[^\w.-]+/g, '_').slice(-80);
-        const blob = await upload(`albums/${albumId}/${safe}`, file, {
+        const send = presigned ? uploadPresigned : upload;
+        const blob = await send(`albums/${albumId}/${safe}`, file, {
           access: 'public',
           handleUploadUrl: '/api/upload',
           headers: { Authorization: `Bearer ${getToken()}` },
-          multipart: file.size > 20 * 1024 * 1024,
+          multipart: !presigned && file.size > 20 * 1024 * 1024,
           contentType: file.type,
           onUploadProgress: ({ percentage }) => patch(f.key, { progress: percentage }),
         });
