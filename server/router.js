@@ -119,7 +119,9 @@ async function listAlbums() {
       (SELECT m.media_url FROM memories m WHERE m.album_id = a.id AND m.media_type = 'image' ORDER BY m.created_at DESC LIMIT 1) AS auto_cover,
       (SELECT m.media_url FROM memories m WHERE m.album_id = a.id ORDER BY m.created_at DESC LIMIT 1) AS latest_url,
       (SELECT m.media_type FROM memories m WHERE m.album_id = a.id ORDER BY m.created_at DESC LIMIT 1) AS latest_type,
-      (SELECT MAX(m.created_at) FROM memories m WHERE m.album_id = a.id) AS last_upload_at
+      (SELECT MAX(m.created_at) FROM memories m WHERE m.album_id = a.id) AS last_upload_at,
+      COALESCE((SELECT json_agg(p.media_url) FROM (SELECT media_url FROM memories m WHERE m.album_id = a.id AND m.media_type = 'image'
+        ORDER BY m.created_at DESC LIMIT 4) p), '[]'::json) AS preview_urls
     FROM albums a LEFT JOIN users u ON u.id = a.created_by
     ORDER BY COALESCE((SELECT MAX(m.created_at) FROM memories m WHERE m.album_id = a.id), a.created_at) DESC`;
   return { albums: rows.map(albumOut) };
@@ -133,6 +135,7 @@ function albumOut(a) {
     // A chosen cover wins; otherwise the newest photo in the album.
     coverUrl: a.cover_url || a.auto_cover || null,
     hasCustomCover: !!a.cover_url,
+    previewUrls: a.preview_urls || [],
   };
 }
 
